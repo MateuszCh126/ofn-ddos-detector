@@ -1,6 +1,7 @@
 from ddos_ofn.config import BuilderConfig, DetectorConfig, SimulationConfig
 from ddos_ofn.detector import DDoSDetector
 from ddos_ofn.simulation import generate_scenario
+import numpy as np
 
 
 def test_detector_raises_alarm_for_synthetic_ddos_ramp():
@@ -48,3 +49,33 @@ def test_detector_requires_all_alert_conditions_to_be_true():
     assert detector._update_alarm(score=5.0, positive_routers=3) is False
     assert detector._update_alarm(score=6.0, positive_routers=1) is False
     assert detector._update_alarm(score=6.0, positive_routers=2) is True
+
+
+def test_detector_accepts_multifeature_router_tensor():
+    traffic = np.array(
+        [
+            [[100.0, 500.0], [105.0, 510.0]],
+            [[101.0, 505.0], [104.0, 515.0]],
+            [[102.0, 510.0], [103.0, 520.0]],
+            [[120.0, 650.0], [122.0, 660.0]],
+            [[135.0, 760.0], [136.0, 780.0]],
+            [[150.0, 860.0], [152.0, 880.0]],
+        ],
+        dtype=np.float64,
+    )
+    labels = np.array([0, 0, 0, 1, 1, 1], dtype=np.int8)
+    detector = DDoSDetector(
+        BuilderConfig(history_size=3, window_size=4),
+        DetectorConfig(alert_threshold=1.0, clear_threshold=0.5, alert_windows=1, clear_windows=1, min_positive_routers=1),
+    )
+
+    trace = detector.run(
+        traffic,
+        ["router_a", "router_b"],
+        labels,
+        "multifeature",
+        feature_names=["packet_count", "byte_count"],
+    )
+
+    assert trace.predictions.max() == 1
+    assert trace.scores.max() > 0.0

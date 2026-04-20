@@ -17,6 +17,7 @@ class BuilderConfig:
     anomaly_clip: float = 8.0
     min_baseline_scale: float = 1.0
     neutral_contribution: float = 0.25
+    feature_aggregation: str = "weighted_mean"
 
 
 @dataclass(slots=True)

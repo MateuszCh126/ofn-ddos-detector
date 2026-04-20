@@ -293,7 +293,7 @@ class DashboardApp:
         ttk.Combobox(
             inner,
             textvariable=self.scenario_var,
-            values=("normal", "ddos_ramp", "ddos_pulse", "flash_crowd"),
+            values=("normal", "ddos_ramp", "ddos_pulse", "ddos_low_and_slow", "ddos_rotating", "flash_crowd", "flash_cascade"),
             state="readonly",
         ).pack(padx=10, pady=(0, 8), fill="x")
         LabeledSpin(inner, "Liczba routerow", self.routers_var, 4, 64).pack(**pad)
@@ -359,7 +359,7 @@ class DashboardApp:
         self.reload_button.pack(padx=10, pady=(2, 8), fill="x")
         _lbl(
             inner,
-            "Dostrajanie uzywa syntetycznego zestawu: normal, ddos_ramp, ddos_pulse, flash_crowd.",
+            "Dostrajanie uzywa szybkiego zestawu syntetycznego: normal, ddos_ramp, ddos_pulse, flash_crowd.",
             color=MUTED,
             justify="left",
             wraplength=290,

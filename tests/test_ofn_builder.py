@@ -27,3 +27,39 @@ def test_build_router_ofn_negative_direction_for_falling_window():
     assert signal.direction == -1
     assert signal.trend < 0.0
     assert signal.ofn.direction == -1
+
+
+def test_build_router_ofn_supports_multiple_features_per_router():
+    cfg = BuilderConfig()
+    history = np.array(
+        [
+            [100.0, 500.0],
+            [101.0, 510.0],
+            [99.0, 495.0],
+            [100.0, 505.0],
+            [102.0, 515.0],
+            [98.0, 490.0],
+        ]
+    )
+    window = np.array(
+        [
+            [105.0, 540.0],
+            [110.0, 580.0],
+            [118.0, 640.0],
+            [130.0, 720.0],
+        ]
+    )
+
+    signal = build_router_ofn(
+        "router_multi",
+        window,
+        history,
+        cfg,
+        feature_names=["packet_count", "byte_count"],
+    )
+
+    assert signal.direction == 1
+    assert signal.trend > 0.0
+    assert signal.ofn.direction == 1
+    assert signal.composite_window is not None
+    assert signal.feature_names == ["packet_count", "byte_count"]

@@ -16,13 +16,15 @@ class RouterOFN:
     router_id: str
     raw_window: np.ndarray
     normalized_window: np.ndarray
-    baseline_center: float
-    baseline_scale: float
+    baseline_center: np.ndarray | float
+    baseline_scale: np.ndarray | float
     anomaly_window: np.ndarray
     trend: float
     direction: int
     ofn: OFN
     suspicion: float
+    composite_window: np.ndarray | None = None
+    feature_names: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -65,6 +67,17 @@ class DetectionTrace:
 
 
 @dataclass(slots=True)
+class ComparatorTrace:
+    """Generic detector output for benchmark comparisons."""
+
+    detector_name: str
+    scenario_name: str
+    labels: np.ndarray
+    predictions: np.ndarray
+    scores: np.ndarray
+
+
+@dataclass(slots=True)
 class DetectionMetrics:
     """Classification metrics produced by the evaluator."""
 
@@ -88,6 +101,8 @@ class SimulationResult:
     traffic: np.ndarray
     labels: np.ndarray
     attack_slice: tuple[int, int] | None = None
+    labels_present: bool = True
+    feature_names: list[str] = field(default_factory=lambda: ["packet_count"])
 
 
 @dataclass(slots=True)

@@ -12,6 +12,21 @@ from ddos_ofn.metrics import evaluate_predictions
 from ddos_ofn.schemas import GAResult, SimulationResult
 
 
+def _reference_router_ids(scenarios: Sequence[SimulationResult]) -> list[str]:
+    """Return and validate the shared router layout across scenarios."""
+
+    if not scenarios:
+        raise ValueError("at least one scenario is required")
+
+    reference = list(scenarios[0].router_ids)
+    for scenario in scenarios[1:]:
+        if list(scenario.router_ids) != reference:
+            raise ValueError("all scenarios must share the same router_ids in the same order")
+        if list(scenario.feature_names) != list(scenarios[0].feature_names):
+            raise ValueError("all scenarios must share the same feature_names in the same order")
+    return reference
+
+
 def _decode_genome(
     genome: np.ndarray,
     router_ids: list[str],
@@ -50,7 +65,13 @@ def _scenario_cost(
     """Evaluate one candidate on one scenario."""
 
     detector = DDoSDetector(builder_config, detector_config, weights=weights)
-    trace = detector.run(scenario.traffic, scenario.router_ids, scenario.labels, scenario.name)
+    trace = detector.run(
+        scenario.traffic,
+        scenario.router_ids,
+        scenario.labels,
+        scenario.name,
+        feature_names=scenario.feature_names,
+    )
     metrics = evaluate_predictions(trace.labels, trace.predictions)
 
     if scenario.attack_slice is None:
@@ -69,11 +90,12 @@ def evaluate_candidate(
     builder_config: BuilderConfig,
     base_detector_config: DetectorConfig,
     ga_config: GAConfig,
+    router_ids: list[str] | None = None,
 ) -> float:
     """Return the average candidate cost across scenarios."""
 
-    router_ids = list(scenarios[0].router_ids)
-    weights, detector_config = _decode_genome(genome, router_ids, base_detector_config, ga_config)
+    active_router_ids = list(router_ids) if router_ids is not None else _reference_router_ids(scenarios)
+    weights, detector_config = _decode_genome(genome, active_router_ids, base_detector_config, ga_config)
     costs = [
         _scenario_cost(scenario, builder_config, detector_config, weights)
         for scenario in scenarios
@@ -134,13 +156,16 @@ def optimize_detector(
     builder_cfg = builder_config or BuilderConfig()
     detector_cfg = detector_config or DetectorConfig()
     ga_cfg = ga_config or GAConfig()
-    router_ids = list(scenarios[0].router_ids)
+    router_ids = _reference_router_ids(scenarios)
     router_count = len(router_ids)
 
     rng = np.random.default_rng(ga_cfg.seed)
     population = _initialize_population(router_count, ga_cfg)
     fitness = np.array(
-        [evaluate_candidate(genome, scenarios, builder_cfg, detector_cfg, ga_cfg) for genome in population],
+        [
+            evaluate_candidate(genome, scenarios, builder_cfg, detector_cfg, ga_cfg, router_ids=router_ids)
+            for genome in population
+        ],
         dtype=np.float64,
     )
 
@@ -172,7 +197,10 @@ def optimize_detector(
 
         population = offspring
         fitness = np.array(
-            [evaluate_candidate(genome, scenarios, builder_cfg, detector_cfg, ga_cfg) for genome in population],
+            [
+                evaluate_candidate(genome, scenarios, builder_cfg, detector_cfg, ga_cfg, router_ids=router_ids)
+                for genome in population
+            ],
             dtype=np.float64,
         )
 

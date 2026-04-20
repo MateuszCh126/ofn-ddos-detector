@@ -21,10 +21,12 @@ class DDoSDetector:
         builder_config: BuilderConfig | None = None,
         detector_config: DetectorConfig | None = None,
         weights: Mapping[str, float] | None = None,
+        feature_weights: Mapping[str, float] | list[float] | tuple[float, ...] | None = None,
     ) -> None:
         self.builder_config = builder_config or BuilderConfig()
         self.detector_config = detector_config or DetectorConfig()
         self.weights = dict(weights or {})
+        self.feature_weights = feature_weights
         self.reset()
 
     def reset(self) -> None:
@@ -64,14 +66,17 @@ class DDoSDetector:
         router_ids: list[str],
         labels: np.ndarray | None = None,
         scenario_name: str = "custom",
+        feature_names: list[str] | None = None,
     ) -> DetectionTrace:
-        """Run the detector across a router x time traffic matrix."""
+        """Run the detector across a router x time traffic matrix or feature tensor."""
 
         matrix = np.asarray(traffic, dtype=np.float64)
-        if matrix.ndim != 2:
-            raise ValueError("traffic must have shape (steps, routers)")
+        if matrix.ndim not in {2, 3}:
+            raise ValueError("traffic must have shape (steps, routers) or (steps, routers, features)")
         if matrix.shape[1] != len(router_ids):
             raise ValueError("router_ids length must match traffic columns")
+        if matrix.ndim == 3 and feature_names is not None and matrix.shape[2] != len(feature_names):
+            raise ValueError("feature_names length must match traffic feature dimension")
 
         self.reset()
         snapshots: list[DetectionSnapshot] = []
@@ -88,7 +93,14 @@ class DDoSDetector:
                     history_size=self.builder_config.history_size,
                 )
                 router_signals.append(
-                    build_router_ofn(router_id, window=window, history=history, config=self.builder_config)
+                    build_router_ofn(
+                        router_id,
+                        window=window,
+                        history=history,
+                        config=self.builder_config,
+                        feature_names=feature_names,
+                        feature_weights=self.feature_weights,
+                    )
                 )
 
             aggregated = aggregate_router_signals(router_signals, self.weights, self.builder_config)

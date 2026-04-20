@@ -23,6 +23,24 @@ def _attack_router_indices(config: SimulationConfig, rng: np.random.Generator) -
     return np.sort(rng.choice(config.routers, size=count, replace=False))
 
 
+def _grouped_router_indices(
+    config: SimulationConfig,
+    rng: np.random.Generator,
+    *,
+    groups: int,
+    group_size: int,
+) -> list[np.ndarray]:
+    permutations = rng.permutation(config.routers)
+    router_groups: list[np.ndarray] = []
+    for idx in range(groups):
+        start = idx * group_size
+        stop = min(len(permutations), start + group_size)
+        if start >= len(permutations):
+            break
+        router_groups.append(np.sort(permutations[start:stop]))
+    return router_groups
+
+
 def generate_scenario(name: str, config: SimulationConfig | None = None) -> SimulationResult:
     """Create one synthetic traffic scenario."""
 
@@ -54,6 +72,37 @@ def generate_scenario(name: str, config: SimulationConfig | None = None) -> Simu
         group = rng.choice(cfg.routers, size=max(1, cfg.routers // 4), replace=False)
         burst = np.sin(np.linspace(0.0, np.pi, cfg.attack_duration)) * cfg.flash_scale * cfg.noise_std * 1.5
         traffic[start:stop, group] += burst[:, None]
+    elif name == "ddos_low_and_slow":
+        attack_slice = (start, stop)
+        labels[start:stop] = 1
+        routers = _attack_router_indices(cfg, rng)
+        ramp = np.linspace(0.15, cfg.attack_scale * 0.55, stop - start)
+        traffic[start:stop, routers] += ramp[:, None] * cfg.noise_std * 1.6
+    elif name == "ddos_rotating":
+        attack_slice = (start, stop)
+        labels[start:stop] = 1
+        group_size = max(1, int(round(cfg.routers * cfg.attack_fraction * 0.45)))
+        router_groups = _grouped_router_indices(cfg, rng, groups=4, group_size=group_size)
+        segment_edges = np.linspace(start, stop, num=len(router_groups) + 1, dtype=int)
+        for idx, routers in enumerate(router_groups):
+            seg_start = int(segment_edges[idx])
+            seg_stop = int(segment_edges[idx + 1])
+            if seg_stop <= seg_start:
+                continue
+            pulse = np.linspace(cfg.attack_scale * 0.45, cfg.attack_scale * 0.9, seg_stop - seg_start)
+            traffic[seg_start:seg_stop, routers] += pulse[:, None] * cfg.noise_std * 2.4
+    elif name == "flash_cascade":
+        attack_slice = None
+        group_size = max(1, cfg.routers // 6)
+        router_groups = _grouped_router_indices(cfg, rng, groups=4, group_size=group_size)
+        segment_edges = np.linspace(start, stop, num=len(router_groups) + 1, dtype=int)
+        for idx, routers in enumerate(router_groups):
+            seg_start = int(segment_edges[idx])
+            seg_stop = int(segment_edges[idx + 1])
+            if seg_stop <= seg_start:
+                continue
+            burst = np.sin(np.linspace(0.0, np.pi, seg_stop - seg_start)) * cfg.flash_scale * cfg.noise_std * 1.35
+            traffic[seg_start:seg_stop, routers] += burst[:, None]
     else:
         raise ValueError(f"unknown scenario: {name}")
 
@@ -64,16 +113,27 @@ def generate_scenario(name: str, config: SimulationConfig | None = None) -> Simu
         traffic=traffic,
         labels=labels,
         attack_slice=attack_slice,
+        feature_names=["packet_count"],
     )
 
 
-def generate_suite(config: SimulationConfig | None = None) -> list[SimulationResult]:
-    """Return a small benchmark suite."""
+def generate_suite(config: SimulationConfig | None = None, suite: str = "basic") -> list[SimulationResult]:
+    """Return a benchmark suite."""
 
     cfg = config or SimulationConfig()
-    return [
-        generate_scenario("normal", cfg),
-        generate_scenario("ddos_ramp", cfg),
-        generate_scenario("ddos_pulse", cfg),
-        generate_scenario("flash_crowd", cfg),
-    ]
+    if suite == "basic":
+        scenario_names = ["normal", "ddos_ramp", "ddos_pulse", "flash_crowd"]
+    elif suite == "extended":
+        scenario_names = [
+            "normal",
+            "ddos_ramp",
+            "ddos_pulse",
+            "ddos_low_and_slow",
+            "ddos_rotating",
+            "flash_crowd",
+            "flash_cascade",
+        ]
+    else:
+        raise ValueError(f"unknown suite: {suite}")
+
+    return [generate_scenario(name, cfg) for name in scenario_names]
