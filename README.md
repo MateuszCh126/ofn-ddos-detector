@@ -58,9 +58,13 @@ pip install -r requirements.txt
 pytest -q
 ```
 
+## Documentation
+
+- Main technical guide: [DOKUMENTACJA_DDOS_OFN.md](./DOKUMENTACJA_DDOS_OFN.md)
+
 ## Core Idea
 
-1. Each router/node provides 4 time-adjacent traffic measurements.
+1. Each router/node provides a short traffic window (default `4` samples, configurable via `BuilderConfig.window_size`).
 2. A directed OFN is built per router for each time window.
 3. Router OFNs are weighted and aggregated into a global OFN score.
 4. Positive direction increases suspicion; negative direction reduces it.
@@ -71,7 +75,7 @@ pytest -q
 
 - Local `pyofn` package copied from the OFN prototype repository.
 - Robust baseline normalization with median and MAD.
-- OFN builder from 4 traffic measurements per router.
+- OFN builder from short traffic windows per router (default `4` samples).
 - Weighted OFN fusion across routers with signed contribution.
 - Stateful detector with alert and clear hysteresis.
 - Synthetic scenarios: `normal`, `ddos_ramp`, `ddos_pulse`, `flash_crowd`.
@@ -85,4 +89,5 @@ python scripts/eval_ddos.py --scenario ddos_ramp
 python scripts/train_ddos_ga.py
 python scripts/run_stream_demo.py
 python scripts/dashboard.py
+python scripts/dashboard.py --smoke-test
 ```

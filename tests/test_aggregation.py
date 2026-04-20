@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from ddos_ofn.aggregator import aggregate_router_signals
 from ddos_ofn.config import BuilderConfig
@@ -38,3 +39,16 @@ def test_aggregate_router_signals_adds_positive_and_subtracts_negative():
     assert aggregated.negative_routers == 1
     assert aggregated.score > 0.0
     assert aggregated.raw_score > 0.0
+
+
+def test_aggregate_router_signals_adds_neutral_with_reduced_weight():
+    cfg = BuilderConfig(n_points=64, neutral_contribution=0.25)
+    signals = [_router_signal("r1", 0, 4.0)]
+
+    aggregated = aggregate_router_signals(signals, {"r1": 1.0}, cfg)
+
+    assert aggregated.neutral_routers == 1
+    assert aggregated.positive_routers == 0
+    assert aggregated.negative_routers == 0
+    assert aggregated.raw_score == pytest.approx(1.0)
+    assert aggregated.score == pytest.approx(1.0)

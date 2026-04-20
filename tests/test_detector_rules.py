@@ -30,3 +30,21 @@ def test_detector_stays_quiet_for_normal_scenario():
     trace = detector.run(sim.traffic, sim.router_ids, sim.labels, sim.name)
 
     assert trace.predictions.sum() == 0
+
+
+def test_detector_requires_all_alert_conditions_to_be_true():
+    detector = DDoSDetector(
+        BuilderConfig(),
+        DetectorConfig(
+            alert_threshold=4.0,
+            clear_threshold=2.0,
+            alert_windows=1,
+            clear_windows=1,
+            min_positive_routers=2,
+            min_total_score=6.0,
+        ),
+    )
+
+    assert detector._update_alarm(score=5.0, positive_routers=3) is False
+    assert detector._update_alarm(score=6.0, positive_routers=1) is False
+    assert detector._update_alarm(score=6.0, positive_routers=2) is True
