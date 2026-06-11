@@ -76,11 +76,16 @@ def _resolve_feature_weights(
         return np.ones(len(feature_names), dtype=np.float64)
 
     if isinstance(feature_weights, Mapping):
-        return np.asarray([float(feature_weights.get(name, 1.0)) for name in feature_names], dtype=np.float64)
+        weights = np.asarray([float(feature_weights.get(name, 1.0)) for name in feature_names], dtype=np.float64)
+    else:
+        weights = np.asarray(feature_weights, dtype=np.float64).reshape(-1)
+        if weights.size != len(feature_names):
+            raise ValueError("feature_weights length must match the feature dimension")
 
-    weights = np.asarray(feature_weights, dtype=np.float64).reshape(-1)
-    if weights.size != len(feature_names):
-        raise ValueError("feature_weights length must match the feature dimension")
+    if not np.all(np.isfinite(weights)):
+        raise ValueError("feature_weights must contain only finite values")
+    if np.any(weights < 0.0):
+        raise ValueError("feature_weights must be non-negative")
     return weights
 
 

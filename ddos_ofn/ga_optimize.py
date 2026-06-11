@@ -76,11 +76,12 @@ def _scenario_cost(
 
     if scenario.attack_slice is None:
         delay_term = 0.0
+        recall_error = 0.0
     else:
         attack_start, _ = scenario.attack_slice
         delay_term = metrics.detection_delay / max(1, scenario.traffic.shape[0] - attack_start)
+        recall_error = 1.0 - metrics.recall if np.isfinite(metrics.recall) else 1.0
 
-    recall_error = 1.0 - metrics.recall
     return 0.55 * recall_error + 0.30 * metrics.false_positive_rate + 0.15 * delay_term
 
 

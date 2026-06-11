@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+import numpy as np
+
 from pyofn import OFN, singleton
 
 from ddos_ofn.config import BuilderConfig
@@ -24,6 +26,8 @@ def aggregate_router_signals(
 
     for signal in router_signals:
         weight = 1.0 if weights is None else float(weights.get(signal.router_id, 1.0))
+        if not np.isfinite(weight) or weight < 0.0:
+            raise ValueError("router weights must be non-negative finite values")
         contribution = signal.ofn * weight
 
         if signal.direction > 0:

@@ -65,16 +65,16 @@ def _read_csv_rows(path: Path) -> tuple[list[str], list[dict[str, str]]]:
     return list(reader.fieldnames), rows
 
 
-def _sort_rows(rows: list[dict[str, str]], step_column: str) -> list[dict[str, str]]:
-    if not rows or step_column not in rows[0]:
+def _sort_rows(rows: list[dict[str, str]], time_column: str) -> list[dict[str, str]]:
+    if not rows or time_column not in rows[0]:
         return rows
-    if any((row.get(step_column) or "").strip() == "" for row in rows):
+    if any((row.get(time_column) or "").strip() == "" for row in rows):
         return rows
 
     try:
-        return sorted(rows, key=lambda row: float(row[step_column]))
+        return sorted(rows, key=lambda row: float(row[time_column]))
     except ValueError:
-        return rows
+        return sorted(rows, key=lambda row: (row.get(time_column) or "").strip())
 
 
 def _resolve_existing_column(fieldnames: Sequence[str], preferred: str, fallbacks: Sequence[str]) -> str:
@@ -182,7 +182,7 @@ def _load_long_csv(
         )
 
     key_column = step_column if step_column in fieldnames else timestamp_column
-    sorted_rows = _sort_rows(rows, key_column if key_column == step_column else "")
+    sorted_rows = _sort_rows(rows, key_column)
     labels_present = label_column in fieldnames
     resolved_value_column = _resolve_existing_column(fieldnames, value_column, ("value",))
     has_feature_column = feature_column in fieldnames

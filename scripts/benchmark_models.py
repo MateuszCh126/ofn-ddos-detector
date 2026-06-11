@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -47,14 +48,26 @@ def _load_scenarios(args: argparse.Namespace) -> list[object]:
     return scenarios
 
 
-def _metric_payload(trace: object) -> dict[str, float]:
+def _json_number(value: float) -> float | None:
+    number = float(value)
+    return number if math.isfinite(number) else None
+
+
+def _mean_metric(values: list[float | None]) -> float | None:
+    finite_values = [float(value) for value in values if value is not None]
+    if not finite_values:
+        return None
+    return float(sum(finite_values) / len(finite_values))
+
+
+def _metric_payload(trace: object) -> dict[str, float | None]:
     metrics = evaluate_predictions(trace.labels, trace.predictions)
     return {
-        "recall": metrics.recall,
-        "precision": metrics.precision,
-        "f1": metrics.f1,
-        "false_positive_rate": metrics.false_positive_rate,
-        "detection_delay": metrics.detection_delay,
+        "recall": _json_number(metrics.recall),
+        "precision": _json_number(metrics.precision),
+        "f1": _json_number(metrics.f1),
+        "false_positive_rate": _json_number(metrics.false_positive_rate),
+        "detection_delay": _json_number(metrics.detection_delay),
         "max_score": float(trace.scores.max()) if len(trace.scores) else 0.0,
     }
 
@@ -83,8 +96,8 @@ def main() -> None:
 
     scenarios = _load_scenarios(args)
 
-    results: dict[str, dict[str, dict[str, float]]] = {}
-    model_averages: dict[str, dict[str, float]] = {}
+    results: dict[str, dict[str, dict[str, float | None]]] = {}
+    model_averages: dict[str, dict[str, float | None]] = {}
     for scenario in scenarios:
         ofn_detector = DDoSDetector(BuilderConfig(), DetectorConfig())
         ofn_trace = ofn_detector.run(
@@ -106,7 +119,7 @@ def main() -> None:
     for model_name in ("ofn", "volume_threshold", "ewma"):
         metrics_by_model = [scenario_metrics[model_name] for scenario_metrics in results.values()]
         model_averages[model_name] = {
-            metric_name: float(sum(item[metric_name] for item in metrics_by_model) / len(metrics_by_model))
+            metric_name: _mean_metric([item[metric_name] for item in metrics_by_model])
             for metric_name in metrics_by_model[0]
         }
 

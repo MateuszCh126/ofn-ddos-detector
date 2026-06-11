@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from ddos_ofn.config import BuilderConfig
 from ddos_ofn.ofn_builder import build_router_ofn
@@ -63,3 +64,33 @@ def test_build_router_ofn_supports_multiple_features_per_router():
     assert signal.ofn.direction == 1
     assert signal.composite_window is not None
     assert signal.feature_names == ["packet_count", "byte_count"]
+
+
+def test_build_router_ofn_rejects_negative_feature_weights():
+    cfg = BuilderConfig()
+    history = np.array(
+        [
+            [100.0, 500.0],
+            [101.0, 510.0],
+            [99.0, 495.0],
+            [100.0, 505.0],
+        ]
+    )
+    window = np.array(
+        [
+            [105.0, 540.0],
+            [110.0, 580.0],
+            [118.0, 640.0],
+            [130.0, 720.0],
+        ]
+    )
+
+    with pytest.raises(ValueError, match="non-negative"):
+        build_router_ofn(
+            "router_multi",
+            window,
+            history,
+            cfg,
+            feature_names=["packet_count", "byte_count"],
+            feature_weights={"packet_count": 1.0, "byte_count": -0.2},
+        )

@@ -87,13 +87,69 @@ def _load_saved_payload() -> dict[str, Any] | None:
     return json.loads(BEST_PARAMS_PATH.read_text(encoding="utf-8"))
 
 
-def _payload_to_detector(payload: dict[str, Any]) -> tuple[dict[str, float], DetectorConfig]:
+def _finite_or_none(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if np.isfinite(number) else None
+
+
+def _fmt_metric(value: Any, digits: int = 3) -> str:
+    number = _finite_or_none(value)
+    return "n/a" if number is None else f"{number:.{digits}f}"
+
+
+def _mean_present(values: Any) -> float | None:
+    present = [_finite_or_none(value) for value in values]
+    finite_values = [value for value in present if value is not None]
+    if not finite_values:
+        return None
+    return float(np.mean(finite_values))
+
+
+def _payload_router_count(payload: dict[str, Any]) -> int | None:
+    explicit_count = payload.get("router_count")
+    if explicit_count is not None:
+        try:
+            count = int(explicit_count)
+        except (TypeError, ValueError):
+            count = 0
+        if count > 0:
+            return count
+
+    weights = payload.get("weights", {})
+    if isinstance(weights, dict) and weights:
+        return len(weights)
+    return None
+
+
+def _scaled_min_positive_routers(payload: dict[str, Any], router_count: int | None) -> int:
+    saved_min = max(1, int(payload["min_positive_routers"]))
+    if router_count is None:
+        return saved_min
+
+    active_router_count = max(1, int(router_count))
+    fraction = _finite_or_none(payload.get("min_positive_fraction"))
+    if fraction is None:
+        trained_router_count = _payload_router_count(payload)
+        if trained_router_count:
+            fraction = saved_min / trained_router_count
+
+    if fraction is None:
+        return min(saved_min, active_router_count)
+
+    scaled = int(round(float(fraction) * active_router_count))
+    return max(1, min(active_router_count, scaled))
+
+
+def _payload_to_detector(payload: dict[str, Any], router_count: int | None = None) -> tuple[dict[str, float], DetectorConfig]:
     detector_cfg = DetectorConfig(
         alert_threshold=float(payload["alert_threshold"]),
         clear_threshold=float(payload["clear_threshold"]),
         alert_windows=int(payload["alert_windows"]),
         clear_windows=int(payload["clear_windows"]),
-        min_positive_routers=int(payload["min_positive_routers"]),
+        min_positive_routers=_scaled_min_positive_routers(payload, router_count),
     )
     return dict(payload["weights"]), detector_cfg
 
@@ -533,9 +589,9 @@ class DashboardApp:
         validation = payload.get("validation", {})
         validation_text = "walidacja brak"
         if validation:
-            mean_f1 = float(np.mean([item["f1"] for item in validation.values()]))
-            mean_recall = float(np.mean([item["recall"] for item in validation.values()]))
-            validation_text = f"srednie F1 {mean_f1:.3f}, recall {mean_recall:.3f}"
+            mean_f1 = _mean_present(item.get("f1") for item in validation.values())
+            mean_recall = _mean_present(item.get("recall") for item in validation.values())
+            validation_text = f"srednie F1 {_fmt_metric(mean_f1)}, recall {_fmt_metric(mean_recall)}"
         self.saved_info_var.set(
             f"Fitness {float(payload['best_fitness']):.4f}\n"
             f"Alert {float(payload['alert_threshold']):.2f} / clear {float(payload['clear_threshold']):.2f}\n"
@@ -569,7 +625,7 @@ class DashboardApp:
         mode = self.mode_var.get()
 
         if mode == "saved_tuned" and self.saved_payload is not None:
-            saved_weights, detector_cfg = _payload_to_detector(self.saved_payload)
+            saved_weights, detector_cfg = _payload_to_detector(self.saved_payload, len(scenario.router_ids))
             weights = {router: saved_weights.get(router, 1.0) for router in scenario.router_ids}
         elif mode == "saved_tuned" and self.saved_payload is None:
             self.mode_var.set("baseline")
@@ -610,15 +666,17 @@ class DashboardApp:
                     trace = detector.run(scenario.traffic, scenario.router_ids, scenario.labels, scenario.name)
                     metrics = evaluate_predictions(trace.labels, trace.predictions)
                     validation[scenario.name] = {
-                        "recall": metrics.recall,
-                        "precision": metrics.precision,
-                        "f1": metrics.f1,
-                        "false_positive_rate": metrics.false_positive_rate,
-                        "detection_delay": metrics.detection_delay,
+                        "recall": _finite_or_none(metrics.recall),
+                        "precision": _finite_or_none(metrics.precision),
+                        "f1": _finite_or_none(metrics.f1),
+                        "false_positive_rate": _finite_or_none(metrics.false_positive_rate),
+                        "detection_delay": _finite_or_none(metrics.detection_delay),
                     }
 
                 payload = {
                     "best_fitness": result.best_fitness,
+                    "router_count": len(train_set[0].router_ids),
+                    "min_positive_fraction": result.min_positive_routers / len(train_set[0].router_ids),
                     "alert_threshold": result.alert_threshold,
                     "clear_threshold": result.clear_threshold,
                     "min_positive_routers": result.min_positive_routers,
@@ -665,7 +723,7 @@ class DashboardApp:
         lines = []
         for scenario, metrics in validation.items():
             lines.append(
-                f"{scenario}: F1 {metrics['f1']:.3f}, recall {metrics['recall']:.3f}, FPR {metrics['false_positive_rate']:.3f}"
+                f"{scenario}: F1 {_fmt_metric(metrics.get('f1'))}, recall {_fmt_metric(metrics.get('recall'))}, FPR {_fmt_metric(metrics.get('false_positive_rate'))}"
             )
         return "\n".join(lines)
 
@@ -679,11 +737,11 @@ class DashboardApp:
         mode: str,
     ) -> None:
         self.metric_vars["scenario"].set(scenario.name)
-        self.metric_vars["recall"].set(f"{metrics.recall:.3f}")
-        self.metric_vars["precision"].set(f"{metrics.precision:.3f}")
-        self.metric_vars["f1"].set(f"{metrics.f1:.3f}")
-        self.metric_vars["fpr"].set(f"{metrics.false_positive_rate:.3f}")
-        self.metric_vars["delay"].set(f"{metrics.detection_delay:.1f}")
+        self.metric_vars["recall"].set(_fmt_metric(metrics.recall))
+        self.metric_vars["precision"].set(_fmt_metric(metrics.precision))
+        self.metric_vars["f1"].set(_fmt_metric(metrics.f1))
+        self.metric_vars["fpr"].set(_fmt_metric(metrics.false_positive_rate))
+        self.metric_vars["delay"].set(_fmt_metric(metrics.detection_delay, 1))
         self.metric_vars["alarm"].set(str(int(np.sum(trace.predictions))))
 
         peak_score = float(np.max(trace.scores)) if trace.scores.size else 0.0
@@ -706,7 +764,7 @@ class DashboardApp:
             f"Threshold alert/clear: {detector_cfg.alert_threshold:.2f} / {detector_cfg.clear_threshold:.2f}\n"
             f"Histereza: alert {detector_cfg.alert_windows} okna, clear {detector_cfg.clear_windows} okna\n"
             f"Min dodatnich routerow: {detector_cfg.min_positive_routers}\n"
-            f"Recall {metrics.recall:.3f}, precision {metrics.precision:.3f}, F1 {metrics.f1:.3f}, FPR {metrics.false_positive_rate:.3f}, delay {metrics.detection_delay:.1f}\n"
+            f"Recall {_fmt_metric(metrics.recall)}, precision {_fmt_metric(metrics.precision)}, F1 {_fmt_metric(metrics.f1)}, FPR {_fmt_metric(metrics.false_positive_rate)}, delay {_fmt_metric(metrics.detection_delay, 1)}\n"
             f"Top wagi: {top_weight_text}\n"
             f"Walidacja zapisanego modelu:\n{self._validation_summary()}"
         )

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -11,6 +12,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from ddos_ofn import BuilderConfig, DDoSDetector, DetectorConfig, SimulationConfig, evaluate_predictions, generate_scenario
 from ddos_ofn.datasets import load_csv_scenario
+
+
+def _json_number(value: float) -> float | None:
+    number = float(value)
+    return number if math.isfinite(number) else None
 
 
 def main() -> None:
@@ -84,11 +90,11 @@ def main() -> None:
         metrics = evaluate_predictions(trace.labels, trace.predictions)
         payload.update(
             {
-                "recall": metrics.recall,
-                "precision": metrics.precision,
-                "f1": metrics.f1,
-                "false_positive_rate": metrics.false_positive_rate,
-                "detection_delay": metrics.detection_delay,
+                "recall": _json_number(metrics.recall),
+                "precision": _json_number(metrics.precision),
+                "f1": _json_number(metrics.f1),
+                "false_positive_rate": _json_number(metrics.false_positive_rate),
+                "detection_delay": _json_number(metrics.detection_delay),
             }
         )
 

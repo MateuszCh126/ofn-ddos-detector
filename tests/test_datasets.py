@@ -65,6 +65,23 @@ step,router_id,packet_count,label
     )
 
 
+def test_load_csv_scenario_sorts_long_format_by_timestamp(tmp_path):
+    csv_path = _write_csv(
+        tmp_path / "traffic_long_timestamp.csv",
+        """
+timestamp,router_id,packet_count,label
+2,router_a,25,1
+1,router_a,12,0
+3,router_a,28,1
+""",
+    )
+
+    scenario = load_csv_scenario(csv_path, csv_format="long", timestamp_column="timestamp")
+
+    assert np.allclose(scenario.traffic[:, 0], np.array([12.0, 25.0, 28.0], dtype=np.float64))
+    assert np.array_equal(scenario.labels, np.array([0, 1, 1], dtype=np.int8))
+
+
 def test_load_csv_scenario_supports_multifeature_long_format(tmp_path):
     csv_path = _write_csv(
         tmp_path / "traffic_multifeature_long.csv",

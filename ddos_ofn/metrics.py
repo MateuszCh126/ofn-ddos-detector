@@ -39,9 +39,16 @@ def evaluate_predictions(labels: np.ndarray, predictions: np.ndarray) -> Detecti
     """Compute detection metrics for one scenario."""
 
     tp, fp, tn, fn = confusion_counts(labels, predictions)
-    recall = tp / (tp + fn) if tp + fn else 1.0
-    precision = tp / (tp + fp) if tp + fp else 1.0
-    f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+    has_positive_labels = (tp + fn) > 0
+    has_positive_predictions = (tp + fp) > 0
+    recall = tp / (tp + fn) if has_positive_labels else float("nan")
+    precision = tp / (tp + fp) if has_positive_predictions else float("nan")
+    if not has_positive_labels:
+        f1 = float("nan")
+    elif not has_positive_predictions:
+        f1 = 0.0
+    else:
+        f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
     false_positive_rate = fp / (fp + tn) if fp + tn else 0.0
     delay = detection_delay(labels, predictions)
     return DetectionMetrics(

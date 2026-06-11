@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 import sys
 
@@ -14,6 +15,11 @@ from ddos_ofn.datasets import build_real_train_validation_sets, build_train_vali
 from ddos_ofn.detector import DDoSDetector
 from ddos_ofn.ga_optimize import optimize_detector
 from ddos_ofn.metrics import evaluate_predictions
+
+
+def _json_number(value: float) -> float | None:
+    number = float(value)
+    return number if math.isfinite(number) else None
 
 
 def main() -> None:
@@ -92,17 +98,20 @@ def main() -> None:
         )
         metrics = evaluate_predictions(trace.labels, trace.predictions)
         validation[scenario.name] = {
-            "recall": metrics.recall,
-            "precision": metrics.precision,
-            "f1": metrics.f1,
-            "false_positive_rate": metrics.false_positive_rate,
-            "detection_delay": metrics.detection_delay,
+            "recall": _json_number(metrics.recall),
+            "precision": _json_number(metrics.precision),
+            "f1": _json_number(metrics.f1),
+            "false_positive_rate": _json_number(metrics.false_positive_rate),
+            "detection_delay": _json_number(metrics.detection_delay),
         }
 
+    router_count = len(train_set[0].router_ids)
     payload = {
         "data_source": data_source,
         "suite": args.suite if data_source == "synthetic" else "csv",
         "best_fitness": result.best_fitness,
+        "router_count": router_count,
+        "min_positive_fraction": result.min_positive_routers / router_count,
         "alert_threshold": result.alert_threshold,
         "clear_threshold": result.clear_threshold,
         "min_positive_routers": result.min_positive_routers,
