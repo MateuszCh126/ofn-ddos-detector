@@ -84,7 +84,13 @@ def _simulation_config(routers: int, steps: int, seed: int) -> SimulationConfig:
 def _load_saved_payload() -> dict[str, Any] | None:
     if not BEST_PARAMS_PATH.exists():
         return None
-    return json.loads(BEST_PARAMS_PATH.read_text(encoding="utf-8"))
+    try:
+        payload = json.loads(BEST_PARAMS_PATH.read_text(encoding="utf-8"))
+        if payload.get("version") != "2.0":
+            return None
+        return payload
+    except Exception:
+        return None
 
 
 def _finite_or_none(value: Any) -> float | None:
@@ -674,6 +680,7 @@ class DashboardApp:
                     }
 
                 payload = {
+                    "version": "2.0",
                     "best_fitness": result.best_fitness,
                     "router_count": len(train_set[0].router_ids),
                     "min_positive_fraction": result.min_positive_routers / len(train_set[0].router_ids),

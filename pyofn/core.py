@@ -20,6 +20,8 @@ from __future__ import annotations
 import numpy as np
 from typing import Callable, Union
 
+_trapezoid = getattr(np, "trapezoid", getattr(np, "trapz", None))
+
 
 _DEFAULT_N = 512  # liczba punktów dyskretyzacji — kompromis szybkość/dokładność
 
@@ -122,18 +124,23 @@ class OFN:
         Oblicz funkcję przynależności μ(x) na podstawie obu ramion.
         Metoda: odwrotna interpolacja — dla każdego x szukamy y.
         """
-        x = np.atleast_1d(np.asarray(x, dtype=np.float64))
-        result = np.zeros_like(x)
+        x_arr = np.atleast_1d(np.asarray(x, dtype=np.float64))
 
         # Ramię wznoszące — monotoniczne, można odwrócić przez interp
         # sortujemy by x_up było rosnące dla interp
         idx_up = np.argsort(self._up)
-        mu_up = np.interp(x, self._up[idx_up], self._y[idx_up], left=0.0, right=0.0)
+        mu_up = np.interp(x_arr, self._up[idx_up], self._y[idx_up], left=0.0, right=0.0)
 
         idx_dn = np.argsort(self._dn)
-        mu_dn = np.interp(x, self._dn[idx_dn], self._y[idx_dn], left=0.0, right=0.0)
+        mu_dn = np.interp(x_arr, self._dn[idx_dn], self._y[idx_dn], left=0.0, right=0.0)
 
         result = np.maximum(mu_up, mu_dn)
+
+        c_min = min(self._up[-1], self._dn[-1])
+        c_max = max(self._up[-1], self._dn[-1])
+        in_core = (x_arr >= c_min) & (x_arr <= c_max)
+        result[in_core] = 1.0
+
         return result
 
     # ------------------------------------------------------------------
@@ -163,19 +170,14 @@ class OFN:
         if isinstance(other, (int, float)):
             return OFN(self._up - other, self._dn - other, self.n)
         self._check_compat(other)
-        # Odejmowanie = dodanie odwróconej (negacja kierunku)
-        return OFN(self._up - other._dn, self._dn - other._up, self.n)
+        return OFN(self._up - other._up, self._dn - other._dn, self.n)
 
     def __rsub__(self, other):
         return (-self).__add__(other)
 
     def __mul__(self, other: Union[OFN, float, int]) -> OFN:
         if isinstance(other, (int, float)):
-            if other >= 0:
-                return OFN(self._up * other, self._dn * other, self.n)
-            else:
-                # Ujemny skalar odwraca kierunek
-                return OFN(self._dn * other, self._up * other, self.n)
+            return OFN(self._up * other, self._dn * other, self.n)
         self._check_compat(other)
         return OFN(self._up * other._up, self._dn * other._dn, self.n)
 
@@ -198,8 +200,8 @@ class OFN:
         return OFN(up, dn, self.n)
 
     def __neg__(self) -> OFN:
-        """Negacja — odwraca kierunek."""
-        return OFN(-self._dn, -self._up, self.n)
+        """Negacja."""
+        return OFN(-self._up, -self._dn, self.n)
 
     def __abs__(self) -> OFN:
         return OFN(np.abs(self._up), np.abs(self._dn), self.n)
@@ -234,14 +236,22 @@ class OFN:
         Wyostrzanie metodą środka ciężkości (Center of Gravity).
         Całkuje po całym kształcie funkcji przynależności.
         """
+        # Sprawdzamy czy ramiona się nakładają (improper)
+        up_min, up_max = np.min(self._up), np.max(self._up)
+        dn_min, dn_max = np.min(self._dn), np.max(self._dn)
+        overlap = min(up_max, dn_max) - max(up_min, dn_min)
+        if overlap > 1e-9:
+            # Improper OFN — defuzzyfikacja po ramionach
+            return float(0.5 * (_trapezoid(self._up, self._y) + _trapezoid(self._dn, self._y)))
+
         # Zbieramy próbki x z obu ramion i ich przynależności y
         xs = np.concatenate([self._up, self._dn])
         ys = np.concatenate([self._y, self._y])
         # Sortujemy po x
         idx = np.argsort(xs)
         xs_s, ys_s = xs[idx], ys[idx]
-        num = np.trapezoid(ys_s * xs_s, xs_s)
-        den = np.trapezoid(ys_s, xs_s)
+        num = _trapezoid(ys_s * xs_s, xs_s)
+        den = _trapezoid(ys_s, xs_s)
         if abs(den) < 1e-15:
             return float(np.mean(xs))
         return float(num / den)
@@ -253,8 +263,8 @@ class OFN:
     def distance_hamming(self, other: OFN) -> float:
         """Odległość Hamminga między dwoma OFN (całkowanie po y)."""
         self._check_compat(other)
-        d_up = np.trapezoid(np.abs(self._up - other._up), self._y)
-        d_dn = np.trapezoid(np.abs(self._dn - other._dn), self._y)
+        d_up = _trapezoid(np.abs(self._up - other._up), self._y)
+        d_dn = _trapezoid(np.abs(self._dn - other._dn), self._y)
         return float(0.5 * (d_up + d_dn))
 
     def to_dict(self) -> dict:

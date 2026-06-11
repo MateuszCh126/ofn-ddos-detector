@@ -41,7 +41,10 @@ def split_history_and_window(
     window_size: int,
     history_size: int,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Extract a fixed-size history segment and the current OFN window."""
+    """Extract a fixed-size history segment and the current OFN window.
+
+    Warning: if history is empty, the baseline is calculated from the current window (warmup bias).
+    """
 
     if step < window_size - 1:
         raise ValueError("step is too small for the requested window size")

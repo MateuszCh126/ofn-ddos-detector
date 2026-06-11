@@ -107,6 +107,7 @@ def main() -> None:
 
     router_count = len(train_set[0].router_ids)
     payload = {
+        "version": "2.0",
         "data_source": data_source,
         "suite": args.suite if data_source == "synthetic" else "csv",
         "best_fitness": result.best_fitness,

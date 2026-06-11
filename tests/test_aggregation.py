@@ -50,8 +50,8 @@ def test_aggregate_router_signals_adds_neutral_with_reduced_weight():
     assert aggregated.neutral_routers == 1
     assert aggregated.positive_routers == 0
     assert aggregated.negative_routers == 0
-    assert aggregated.raw_score == pytest.approx(1.0)
-    assert aggregated.score == pytest.approx(1.0)
+    assert aggregated.raw_score == pytest.approx(4.0)
+    assert aggregated.score == pytest.approx(4.0)
 
 
 def test_aggregate_router_signals_rejects_negative_router_weight():

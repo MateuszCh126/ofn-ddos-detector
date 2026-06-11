@@ -1,0 +1,32 @@
+.git/
+.graphify/
+graphify-out/
+node_modules/
+__pycache__/
+.pytest_cache/
+.venv/
+venv/
+env/
+
+# Generated data, outputs, and local runtime artifacts
+artifacts/
+data/
+*.log
+*.jsonl
+*.csv
+*.pkl
+*.sqlite
+*.db
+
+# Local secrets and binary/generated artifacts
+.env
+.env.*
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.pdf
+*.zip
+*.7z
+*.tar
+*.gz

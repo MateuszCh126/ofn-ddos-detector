@@ -14,10 +14,15 @@ from ddos_ofn.schemas import RouterOFN
 
 
 def infer_direction(normalized_window: np.ndarray, trend_epsilon: float) -> tuple[int, float]:
-    """Infer direction from the first and last normalized samples."""
+    """Infer direction using the slope of linear regression over the entire normalized window."""
 
     values = np.asarray(normalized_window, dtype=np.float64)
-    trend = float(values[-1] - values[0])
+    n = len(values)
+    if n < 2:
+        return 0, 0.0
+    x = np.arange(n, dtype=np.float64)
+    slope, _ = np.polyfit(x, values, 1)
+    trend = float(slope * (n - 1))
     if trend > trend_epsilon:
         return 1, trend
     if trend < -trend_epsilon:

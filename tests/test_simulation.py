@@ -40,3 +40,12 @@ def test_build_train_validation_sets_supports_extended_suite():
 
     assert len(train_set) == len(valid_set)
     assert len(train_set) == 7
+
+
+def test_simulation_broadcast_regression():
+    # steps < attack_start + attack_duration (100 < 80 + 40)
+    cfg = SimulationConfig(steps=100, attack_start=80, attack_duration=40)
+    suite = generate_suite(cfg, suite="extended")
+    for scenario in suite:
+        assert scenario.traffic.shape == (100, cfg.routers)
+        assert scenario.labels.shape == (100,)

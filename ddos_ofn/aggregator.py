@@ -23,6 +23,7 @@ def aggregate_router_signals(
     positive = 0
     negative = 0
     neutral = 0
+    sum_effective_weights = 0.0
 
     for signal in router_signals:
         weight = 1.0 if weights is None else float(weights.get(signal.router_id, 1.0))
@@ -30,6 +31,7 @@ def aggregate_router_signals(
             raise ValueError("router weights must be non-negative finite values")
         contribution = signal.ofn * weight
 
+        effective_w = weight
         if signal.direction > 0:
             total = total + contribution
             positive += 1
@@ -37,10 +39,16 @@ def aggregate_router_signals(
             total = total - contribution
             negative += 1
         else:
+            effective_w = weight * builder_config.neutral_contribution
             total = total + contribution * builder_config.neutral_contribution
             neutral += 1
+        sum_effective_weights += effective_w
 
-    raw_score = float(total.defuzzify_cog())
+    if sum_effective_weights > 0.0:
+        total = total * (1.0 / sum_effective_weights)
+
+    trapezoid = getattr(np, "trapezoid", getattr(np, "trapz", None))
+    raw_score = float(0.5 * (trapezoid(total.up, total.y) + trapezoid(total.down, total.y)))
     score = max(raw_score, 0.0)
     return AggregatedSignal(
         global_ofn=total,

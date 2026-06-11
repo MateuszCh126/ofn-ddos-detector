@@ -151,9 +151,11 @@ def run_ewma_detector(
         std = max(np.sqrt(ewvar), cfg.min_std)
         scores[step] = max(residual / std, 0.0)
 
-        previous_ewma = ewma
-        ewma = cfg.alpha * float(series[step]) + (1.0 - cfg.alpha) * ewma
-        ewvar = cfg.alpha * (float(series[step]) - previous_ewma) ** 2 + (1.0 - cfg.alpha) * ewvar
+        x = float(series[step])
+        diff = x - ewma
+        incr = cfg.alpha * diff
+        ewma += incr
+        ewvar = (1.0 - cfg.alpha) * (ewvar + diff * incr)
 
     predictions = _apply_hysteresis(
         scores,

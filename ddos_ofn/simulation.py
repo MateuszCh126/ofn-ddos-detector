@@ -70,7 +70,7 @@ def generate_scenario(name: str, config: SimulationConfig | None = None) -> Simu
     elif name == "flash_crowd":
         attack_slice = None
         group = rng.choice(cfg.routers, size=max(1, cfg.routers // 4), replace=False)
-        burst = np.sin(np.linspace(0.0, np.pi, cfg.attack_duration)) * cfg.flash_scale * cfg.noise_std * 1.5
+        burst = np.sin(np.linspace(0.0, np.pi, stop - start)) * cfg.flash_scale * cfg.noise_std * 1.5
         traffic[start:stop, group] += burst[:, None]
     elif name == "ddos_low_and_slow":
         attack_slice = (start, stop)

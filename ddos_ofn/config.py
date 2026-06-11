@@ -13,7 +13,7 @@ class BuilderConfig:
     window_size: int = 4
     history_size: int = 16
     min_spread: float = 0.2
-    trend_epsilon: float = 0.15
+    trend_epsilon: float = 2.2
     anomaly_clip: float = 8.0
     min_baseline_scale: float = 1.0
     neutral_contribution: float = 0.25
@@ -24,8 +24,8 @@ class BuilderConfig:
 class DetectorConfig:
     """Thresholds and hysteresis for the global detector."""
 
-    alert_threshold: float = 4.0
-    clear_threshold: float = 2.0
+    alert_threshold: float = 1.5
+    clear_threshold: float = 0.75
     alert_windows: int = 2
     clear_windows: int = 2
     min_positive_routers: int = 4
@@ -62,7 +62,7 @@ class GAConfig:
     tournament_k: int = 3
     elite_count: int = 4
     weight_bounds: tuple[float, float] = (0.1, 3.0)
-    alert_threshold_bounds: tuple[float, float] = (1.0, 10.0)
+    alert_threshold_bounds: tuple[float, float] = (0.5, 5.0)
     clear_ratio_bounds: tuple[float, float] = (0.25, 0.9)
     positive_fraction_bounds: tuple[float, float] = (0.05, 0.8)
     hysteresis_bounds: tuple[int, int] = (1, 5)
