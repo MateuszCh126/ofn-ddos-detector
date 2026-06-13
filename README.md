@@ -15,6 +15,11 @@ See [LICENSE](./LICENSE) and `COMMERCIAL.md`.
 
 ```text
 ofn-ddos-detector/
+  pyofn/                     # local Ordered Fuzzy Number library
+    __init__.py
+    core.py
+    shapes.py
+    viz.py
   ddos_ofn/
     __init__.py
     config.py
@@ -23,6 +28,7 @@ ofn-ddos-detector/
     ofn_builder.py
     aggregator.py
     detector.py
+    comparators.py           # EWMA / volume-threshold baselines
     ga_optimize.py
     metrics.py
     simulation.py
@@ -34,12 +40,14 @@ ofn-ddos-detector/
     dashboard.py
     benchmark_models.py
   tests/
+    test_pyofn_core.py
     test_ofn_builder.py
     test_direction_switch.py
     test_aggregation.py
     test_detector_rules.py
     test_ga_optimize.py
     test_datasets.py
+    test_metrics.py
     test_simulation.py
     test_comparators.py
   data/
@@ -47,6 +55,7 @@ ofn-ddos-detector/
     processed/
   artifacts/
     plots/
+  run.py                     # desktop dashboard entrypoint
   README.md
   LICENSE
   COMMERCIAL.md
