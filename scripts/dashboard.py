@@ -34,11 +34,14 @@ BEST_PARAMS_PATH = ARTIFACTS_DIR / "best_params.json"
 
 DARK = "#0d1117"
 PANEL = "#161b22"
+PANEL2 = "#1c2430"  # slightly lifted surface for cards / insets
 BORDER = "#30363d"
 TEXT = "#e6edf3"
 MUTED = "#8b949e"
 ACCENT = "#58a6ff"
+ACCENT_HI = "#79c0ff"  # hover / highlight accent
 GREEN = "#3fb950"
+GREEN_HI = "#56d364"
 RED = "#f85149"
 YELLOW = "#d29922"
 PURPLE = "#bc8cff"
@@ -46,7 +49,36 @@ PURPLE = "#bc8cff"
 FONT_MONO = ("Consolas", 9)
 FONT_UI = ("Segoe UI", 9)
 FONT_H = ("Segoe UI", 10, "bold")
-FONT_TITLE = ("Segoe UI", 12, "bold")
+FONT_TITLE = ("Segoe UI", 13, "bold")
+FONT_HERO = ("Segoe UI Semibold", 16, "bold")
+
+
+def _shade(hex_color: str, factor: float) -> str:
+    """Lighten (factor>1) or darken (factor<1) a #rrggbb color."""
+    r = int(hex_color[1:3], 16)
+    g = int(hex_color[3:5], 16)
+    b = int(hex_color[5:7], 16)
+    r = max(0, min(255, int(r * factor)))
+    g = max(0, min(255, int(g * factor)))
+    b = max(0, min(255, int(b * factor)))
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def _hover(button: tk.Button, base: str, hover: str) -> None:
+    """Attach a lightweight hover highlight to a flat tk.Button."""
+    button.bind("<Enter>", lambda _e: button.configure(bg=hover), add="+")
+    button.bind("<Leave>", lambda _e: button.configure(bg=base), add="+")
+
+
+def _metric_color(key: str, value: float | None) -> str:
+    """Traffic-light colour for a metric value (good=green, bad=red)."""
+    if value is None:
+        return MUTED
+    if key in ("recall", "precision", "f1"):
+        return GREEN if value >= 0.8 else (YELLOW if value >= 0.5 else RED)
+    if key == "fpr":
+        return GREEN if value <= 0.05 else (YELLOW if value <= 0.2 else RED)
+    return TEXT
 
 MPL_STYLE = {
     "figure.facecolor": DARK,
@@ -203,8 +235,10 @@ class LabeledSpin(tk.Frame):
 
 
 class DashboardApp:
-    def __init__(self, root: tk.Tk) -> None:
+    def __init__(self, root: tk.Tk, *, snap: str = "none", label: str = "") -> None:
         self.root = root
+        self.snap = snap
+        self.app_label = label
         self._setup_window()
         self._setup_style()
 
@@ -234,11 +268,18 @@ class DashboardApp:
             "delay": tk.StringVar(value="-"),
             "alarm": tk.StringVar(value="-"),
         }
+        dc = self.base_detector_cfg
+        bc = self.builder_cfg
         self.card_vars = {
             "mode": tk.StringVar(value="baseline"),
-            "thresholds": tk.StringVar(value="alert 4.00 / clear 2.00"),
-            "logic": tk.StringVar(value="2 okna / min 4 routery"),
+            "thresholds": tk.StringVar(value=f"alert {dc.alert_threshold:.2f}\nclear {dc.clear_threshold:.2f}"),
+            "logic": tk.StringVar(
+                value=f"{dc.alert_windows}/{dc.clear_windows} okna\nmin {int(round(dc.min_positive_fraction * 100))}% routerow"
+            ),
             "model": tk.StringVar(value="brak zapisanego modelu"),
+            "ofn": tk.StringVar(
+                value=f"baseline: {bc.baseline_mode}\nkierunek: {bc.direction_mode} (e={bc.level_epsilon:g})\nprog: {dc.threshold_mode}"
+            ),
         }
 
         self._build_ui()
@@ -247,13 +288,30 @@ class DashboardApp:
         self._poll_worker()
 
     def _setup_window(self) -> None:
-        self.root.title("OFN DDoS Detector - Dashboard")
+        title = "OFN DDoS Detector - Dashboard"
+        if self.app_label:
+            title = f"{title}  [{self.app_label}]"
+        self.root.title(title)
         self.root.configure(bg=DARK)
-        width, height = 1440, 950
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
-        self.root.geometry(f"{width}x{height}+{max((sw - width) // 2, 20)}+{max((sh - height) // 2, 20)}")
-        self.root.minsize(1180, 780)
+
+        if self.snap in ("left", "right"):
+            # Tile the window to one half of the screen so two instances (e.g.
+            # the legacy build vs this one) sit comfortably side by side.
+            gap = 8
+            width = max((sw - 3 * gap) // 2, 760)
+            height = max(sh - 2 * gap - 48, 700)
+            y = gap
+            x = gap if self.snap == "left" else sw - width - gap
+            self.root.minsize(760, 680)
+        else:
+            width, height = 1440, 950
+            x = max((sw - width) // 2, 20)
+            y = max((sh - height) // 2, 20)
+            self.root.minsize(1180, 780)
+
+        self.root.geometry(f"{width}x{height}+{x}+{y}")
         self.root.protocol("WM_DELETE_WINDOW", self._on_exit)
 
     def _setup_style(self) -> None:
@@ -282,16 +340,36 @@ class DashboardApp:
         style.configure("Horizontal.TScrollbar", background=BORDER, troughcolor=DARK, bordercolor=DARK, arrowcolor=TEXT)
 
     def _build_ui(self) -> None:
-        header = tk.Frame(self.root, bg=DARK, pady=8)
+        # Accent strip along the very top for a more finished look.
+        tk.Frame(self.root, bg=ACCENT, height=3).pack(fill="x")
+
+        header = tk.Frame(self.root, bg=DARK, pady=10)
         header.pack(fill="x")
-        tk.Label(header, text="OFN DDoS Detector", bg=DARK, fg=ACCENT, font=FONT_TITLE).pack(side="left", padx=14)
+
+        brand = tk.Frame(header, bg=DARK)
+        brand.pack(side="left", padx=14)
+        title_row = tk.Frame(brand, bg=DARK)
+        title_row.pack(anchor="w")
+        tk.Label(title_row, text="OFN", bg=ACCENT, fg=DARK, font=FONT_HERO, padx=7).pack(side="left")
+        tk.Label(title_row, text=" DDoS Detector", bg=DARK, fg=TEXT, font=FONT_HERO).pack(side="left")
+        if self.app_label:
+            tk.Label(
+                title_row,
+                text=self.app_label.upper(),
+                bg=PURPLE,
+                fg=DARK,
+                font=("Segoe UI", 9, "bold"),
+                padx=8,
+                pady=1,
+            ).pack(side="left", padx=(10, 0))
         tk.Label(
-            header,
+            brand,
             text="Directed fuzzy fusion of multi-router traffic",
             bg=DARK,
             fg=MUTED,
             font=FONT_MONO,
-        ).pack(side="left")
+        ).pack(anchor="w", pady=(2, 0))
+
         self.header_mode_label = tk.Label(header, textvariable=self.header_mode_var, bg=DARK, fg=MUTED, font=FONT_MONO)
         self.header_mode_label.pack(side="right", padx=(0, 12))
         self.header_state_label = tk.Label(
@@ -300,8 +378,8 @@ class DashboardApp:
             bg=PANEL,
             fg=GREEN,
             font=("Segoe UI", 9, "bold"),
-            padx=10,
-            pady=4,
+            padx=12,
+            pady=5,
             relief="flat",
         )
         self.header_state_label.pack(side="right", padx=(0, 10))
@@ -358,8 +436,8 @@ class DashboardApp:
             values=("normal", "ddos_ramp", "ddos_pulse", "ddos_low_and_slow", "ddos_rotating", "flash_crowd", "flash_cascade"),
             state="readonly",
         ).pack(padx=10, pady=(0, 8), fill="x")
-        LabeledSpin(inner, "Liczba routerow", self.routers_var, 4, 64).pack(**pad)
-        LabeledSpin(inner, "Liczba krokow", self.steps_var, 48, 240).pack(**pad)
+        LabeledSpin(inner, "Liczba routerow", self.routers_var, 4, 256).pack(**pad)
+        LabeledSpin(inner, "Liczba krokow", self.steps_var, 48, 400).pack(**pad)
         LabeledSpin(inner, "Seed", self.seed_var, 0, 9999).pack(**pad)
 
         _sep(inner).pack(fill="x", padx=6, pady=3)
@@ -392,6 +470,7 @@ class DashboardApp:
             command=self.run_scenario,
         )
         self.run_button.pack(padx=10, pady=(4, 6), fill="x")
+        _hover(self.run_button, GREEN, GREEN_HI)
         self.train_button = tk.Button(
             inner,
             text="DOSTROJ GA",
@@ -406,6 +485,7 @@ class DashboardApp:
             command=self.train_tuned_model,
         )
         self.train_button.pack(padx=10, pady=2, fill="x")
+        _hover(self.train_button, ACCENT, ACCENT_HI)
         self.reload_button = tk.Button(
             inner,
             text="Wczytaj zapisany model",
@@ -419,6 +499,7 @@ class DashboardApp:
             command=self.reload_saved_model,
         )
         self.reload_button.pack(padx=10, pady=(2, 8), fill="x")
+        _hover(self.reload_button, BORDER, _shade(BORDER, 1.4))
         _lbl(
             inner,
             "Dostrajanie uzywa szybkiego zestawu syntetycznego: normal, ddos_ramp, ddos_pulse, flash_crowd.",
@@ -429,6 +510,7 @@ class DashboardApp:
 
         _sep(inner).pack(fill="x", padx=6, pady=3)
         heading("METRYKI").pack(**pad)
+        self.metric_value_labels: dict[str, tk.Label] = {}
         for key, label in (
             ("scenario", "Scenariusz"),
             ("recall", "Recall"),
@@ -441,7 +523,9 @@ class DashboardApp:
             row = tk.Frame(inner, bg=PANEL)
             row.pack(fill="x", padx=10, pady=2)
             _lbl(row, f"{label}:", color=MUTED, width=18, anchor="w").pack(side="left")
-            _lbl(row, "", color=TEXT, anchor="w", textvariable=self.metric_vars[key]).pack(side="left")
+            value_label = _lbl(row, "", color=TEXT, anchor="w", font=FONT_MONO, textvariable=self.metric_vars[key])
+            value_label.pack(side="left")
+            self.metric_value_labels[key] = value_label
 
         _sep(inner).pack(fill="x", padx=6, pady=3)
         heading("DIAGNOSTYKA").pack(**pad)
@@ -449,7 +533,7 @@ class DashboardApp:
         _lbl(inner, "", justify="left", wraplength=290, color=MUTED, textvariable=self.diagnostic_var).pack(padx=10, pady=(0, 8), fill="x")
 
     def _build_right(self, parent: tk.Frame) -> None:
-        summary_outer = tk.Frame(parent, bg=PANEL, height=126)
+        summary_outer = tk.Frame(parent, bg=PANEL, height=132)
         summary_outer.pack(fill="x")
         summary_outer.pack_propagate(False)
         top = tk.Frame(summary_outer, bg=PANEL)
@@ -464,26 +548,28 @@ class DashboardApp:
 
         cards = tk.Frame(summary_outer, bg=PANEL)
         cards.pack(fill="both", expand=True, padx=8, pady=(2, 8))
-        cards.grid_columnconfigure((0, 1, 2, 3), weight=1, uniform="card")
+        cards.grid_columnconfigure((0, 1, 2, 3, 4), weight=1, uniform="card")
         for column, (title, key, color) in enumerate(
             (
                 ("Tryb", "mode", ACCENT),
+                ("Model OFN", "ofn", ACCENT_HI),
                 ("Progi", "thresholds", YELLOW),
                 ("Logika alarmu", "logic", GREEN),
                 ("Model zapisany", "model", PURPLE),
             )
         ):
-            card = tk.Frame(cards, bg=DARK, highlightbackground=BORDER, highlightthickness=1)
+            card = tk.Frame(cards, bg=PANEL2, highlightbackground=BORDER, highlightthickness=1)
             card.grid(row=0, column=column, padx=4, pady=2, sticky="nsew")
-            _lbl(card, title, font=FONT_MONO, color=MUTED, bg=DARK).pack(anchor="w", padx=10, pady=(8, 2))
+            tk.Frame(card, bg=color, height=2).pack(fill="x")  # accent top-border
+            _lbl(card, title.upper(), font=FONT_MONO, color=MUTED, bg=PANEL2).pack(anchor="w", padx=10, pady=(7, 2))
             _lbl(
                 card,
                 "",
                 font=("Segoe UI", 10, "bold"),
                 color=color,
-                bg=DARK,
+                bg=PANEL2,
                 justify="left",
-                wraplength=180,
+                wraplength=170,
                 textvariable=self.card_vars[key],
             ).pack(anchor="w", padx=10, pady=(0, 8))
 
@@ -751,6 +837,15 @@ class DashboardApp:
         self.metric_vars["delay"].set(_fmt_metric(metrics.detection_delay, 1))
         self.metric_vars["alarm"].set(str(int(np.sum(trace.predictions))))
 
+        # Traffic-light colour the quality metrics so a glance reads pass/fail.
+        for metric_key, raw in (
+            ("recall", metrics.recall),
+            ("precision", metrics.precision),
+            ("f1", metrics.f1),
+            ("fpr", metrics.false_positive_rate),
+        ):
+            self.metric_value_labels[metric_key].config(fg=_metric_color(metric_key, _finite_or_none(raw)))
+
         peak_score = float(np.max(trace.scores)) if trace.scores.size else 0.0
         peak_positive = max((snapshot.positive_routers for snapshot in trace.snapshots), default=0)
         top_weights = sorted(weights.items(), key=lambda item: item[1], reverse=True)[:6]
@@ -851,10 +946,21 @@ class DashboardApp:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--smoke-test", action="store_true")
+    parser.add_argument(
+        "--snap",
+        choices=("none", "left", "right"),
+        default="none",
+        help="tile the window to one half of the screen for side-by-side testing",
+    )
+    parser.add_argument(
+        "--label",
+        default="",
+        help="badge shown in the header/title to tell two instances apart, e.g. 'robust' / 'legacy'",
+    )
     args = parser.parse_args()
 
     root = tk.Tk()
-    app = DashboardApp(root)
+    app = DashboardApp(root, snap=args.snap, label=args.label)
 
     if args.smoke_test:
         app.run_scenario()
