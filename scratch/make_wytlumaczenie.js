@@ -124,21 +124,23 @@ const doc = new Document({
 
       h1("Jak system podejmuje decyzję — 6 kroków"),
       step("Pomiar", "Co krok czasu każdy router zgłasza, ile pakietów przez niego przeszło."),
-      step("Porównanie z normą", "Dla każdego routera system pamięta ostatnią historię ruchu i liczy z niej " +
-        "„typowy poziom” oraz „typowy rozrzut” (używa mediany, więc pojedyncze skoki nie psują normy). " +
-        "Bieżący pomiar zamienia na wynik w stylu: „o ile odchyleń od normy jesteśmy powyżej?”."),
+      step("Porównanie z własnym spokojem", "Dla każdego routera system wyznacza jego „poziom spoczynku” — " +
+        "ile ruchu przechodzi przez niego, gdy nic się nie dzieje. Bierze do tego niski percentyl całej historii, " +
+        "więc nawet jeśli atak trwa przez większość czasu, spokojne chwile i tak wyznaczają punkt odniesienia. " +
+        "Bieżący pomiar zamienia na: „o ile jestem powyżej własnego spokoju?”."),
       step("Budowa liczby OFN", "Z ostatnich 4 pomiarów powstaje jedna liczba OFN: jej szerokość oddaje niepewność, " +
-        "a kierunek bierze się z dopasowania prostej do okna — jeśli prosta wyraźnie pnie się w górę, " +
-        "router „głosuje za atakiem”. Próg jest dobrany tak, by zwykły szum prawie nigdy " +
-        "nie wyglądał jak trend."),
-      step("Zliczenie głosów", "Liczby OFN wszystkich routerów są składane w jeden globalny obraz sieci: " +
-        "głosy „rosnące” dodają podejrzenia, „malejące” je odejmują, a niezdecydowane liczą się " +
-        "tylko w jednej czwartej. Wynik jest uśredniany, więc nie zależy od tego, czy sieć ma 10 czy 100 routerów."),
+        "a kierunek bierze się z tego, jak wysoko nad spokojem jest router. Kluczowe: router, który jest " +
+        "stale wysoko, „głosuje za atakiem” nawet gdy już nie rośnie (atak nie musi cały czas przyspieszać). " +
+        "Próg jest dobrany tak, by zwykły szum nigdy nie wyglądał jak głos za atakiem."),
+      step("Zliczenie głosów", "Liczby OFN wszystkich routerów składane są w jeden globalny obraz: głosy „w górę” " +
+        "dodają podejrzenia, „w dół” je odejmują. Wynik jest średnią (nie sumą), więc " +
+        "nie zależy od tego, czy sieć ma 10 czy 200 routerów — system sam dostosowuje się do ich liczby."),
       step("Wyostrzenie", "Globalny rozmyty obraz zamieniany jest z powrotem na jedną liczbę — " +
-        "„poziom podejrzenia”. Można o nim myśleć jak o średniej temperaturze niepokoju w całej sieci."),
-      step("Alarm z histerezą", "Alarm włącza się dopiero, gdy podejrzenie przekracza próg przez 2 kroki z rzędu " +
-        "I jednocześnie odpowiednio wiele routerów głosuje „za”. Gaśnie dopiero, gdy podejrzenie " +
-        "spadnie wyraźnie niżej — też przez 2 kroki. Dzięki temu alarm nie miga jak zepsuta lampka."),
+        "„poziom podejrzenia” w jednostkach „ilu odchyleń nad spokojem”. Jak średnia temperatura niepokoju w sieci."),
+      step("Alarm z histerezą i szerokością", "Alarm włącza się, gdy podejrzenie przekracza próg przez 2 kroki z rzędu " +
+        "I jednocześnie odpowiednio duży ODSETEK routerów głosuje „za” (a nie tylko jeden–dwa). Ten warunek " +
+        "odsetka skaluje się z liczbą routerów i odróżnia szeroki atak od wąskiego, niewinnego skoku ruchu. " +
+        "Gaśnie, gdy podejrzenie wyraźnie spadnie — też przez 2 kroki. Dzięki temu alarm nie miga jak zepsuta lampka."),
 
       h1("Skąd system zna swoje ustawienia?"),
       p("Progi alarmu, wagi poszczególnych routerów i długości serii dobiera automatycznie " +
@@ -174,16 +176,24 @@ const doc = new Document({
       p("", { spacing: { after: 80 } }),
       p("Scenariusze „pułapki” są najważniejsze: łatwo zbudować system, który krzyczy przy każdym " +
         "wzroście ruchu. Sztuką jest milczeć, gdy wzrost jest uczciwy — i tu właśnie pomaga " +
-        "kierunkowość OFN oraz wymaganie, by wiele routerów głosowało naraz."),
+        "warunek szerokości: flash crowd dotyka mniej routerów niż prawdziwy atak rozproszony. " +
+        "W teście na 8–120 routerach system nie podniósł ani jednego fałszywego alarmu na ruchu normalnym i obu flash crowdach."),
+
+      h1("Dlaczego działa niezależnie od liczby routerów"),
+      p("Dwie rzeczy sprawiają, że ten sam zestaw ustawień działa dla małej i dużej sieci: " +
+        "(1) poziom podejrzenia to ŚREDNIA z routerów, nie suma — więc nie rośnie sztucznie z ich liczbą; " +
+        "(2) warunek „ilu routerów musi głosować za” jest ułamkiem (np. 35%), więc sam przelicza się na " +
+        "konkretną liczbę zależnie od rozmiaru sieci. Nic nie trzeba ręcznie przestawiać przy zmianie liczby routerów."),
 
       h1("Co warto zapamiętać"),
       bullet("System nie patrzy na jeden licznik, tylko na zgodność wielu świadków — routerów."),
-      bullet("Każdy świadek mówi nie tylko „ile”, ale też „w którą stronę to zmierza”."),
-      bullet("Norma liczona jest medianą, więc atak nie jest w stanie szybko „przestawić” pojęcia normalności."),
+      bullet("Każdy świadek mówi nie tylko „ile”, ale też „jak wysoko nad własnym spokojem” — więc łapie też ataki, które już nie rosną, tylko trwają."),
+      bullet("Punkt odniesienia to spokojny poziom routera (niski percentyl), więc długotrwały atak nie jest w stanie „przestawić” pojęcia normalności."),
+      bullet("Poziom podejrzenia to średnia, a warunek szerokości to ułamek — dlatego system sam dostosowuje się do liczby routerów."),
       bullet("Alarm ma histerezę — włącza się i gaśnie z rozmysłem, nie miga."),
-      bullet("Ustawienia stroi ewolucja (algorytm genetyczny), a nie człowiek zgadujący progi."),
-      bullet("Najtrudniejszy przeciwnik to atak „low and slow” — celowo wolny, by udawać naturalny wzrost; " +
-        "do jego niezawodnego łapania potrzebne jest strojenie pod konkretną sieć."),
+      bullet("Ustawienia można dostroić ewolucją (algorytm genetyczny) pod konkretną sieć."),
+      bullet("Najtrudniejszy przeciwnik to atak „low and slow” — celowo wolny, by udawać naturalny wzrost."),
+      bullet("Na realnych, zatłoczonych danych sam wolumen pakietów bywa za słaby — wtedy pomagają bogatsze cechy ruchu (np. entropia portów i adresów, rozkład rozmiaru pakietów)."),
     ],
   }],
 });
