@@ -22,6 +22,32 @@ def robust_center_scale(
     return center, scale
 
 
+def robust_floor_scale(
+    series: np.ndarray,
+    floor_quantile: float = 0.3,
+    min_scale: float = 1.0,
+    eps: float = 1e-9,
+) -> tuple[float, float]:
+    """Estimate an *idle floor* center and a robust scale for a full series.
+
+    Unlike :func:`robust_center_scale` (median + MAD), the center here is a low
+    quantile of the series. This is deliberately resistant to a high attack
+    fraction: even when most of the timeline is under attack, the idle/benign
+    periods still set the low quantile, so "how far above your own floor are
+    you" stays meaningful. The scale is the inter-quartile range rescaled to a
+    Gaussian sigma (IQR / 1.349), floored by ``min_scale``.
+    """
+
+    values = np.asarray(series, dtype=np.float64).reshape(-1)
+    if values.size == 0:
+        return 0.0, max(min_scale, eps)
+
+    center = float(np.quantile(values, floor_quantile))
+    q1, q3 = np.quantile(values, [0.25, 0.75])
+    scale = max(float(q3 - q1) / 1.349, min_scale, eps)
+    return center, scale
+
+
 def normalize_window(
     window: np.ndarray,
     center: float,
