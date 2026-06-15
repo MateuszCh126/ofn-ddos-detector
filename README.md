@@ -33,12 +33,14 @@ ofn-ddos-detector/
     metrics.py
     simulation.py
     datasets.py
+    cicddos2019.py           # CIC-DDoS2019 raw flow -> scenario CSV converter
   scripts/
     train_ddos_ga.py
     eval_ddos.py
     run_stream_demo.py
-    dashboard.py
+    dashboard.py             # desktop UI (supports --snap / --label)
     benchmark_models.py
+    prepare_cicddos2019.py
   tests/
     test_pyofn_core.py
     test_ofn_builder.py
@@ -50,6 +52,7 @@ ofn-ddos-detector/
     test_metrics.py
     test_simulation.py
     test_comparators.py
+    test_robustness.py       # floor contamination, level direction, count generalization
   data/
     raw/
     processed/
@@ -74,28 +77,45 @@ pytest -q
 
 ## Documentation
 
-- Main technical guide: [DOKUMENTACJA_DDOS_OFN.md](./DOKUMENTACJA_DDOS_OFN.md)
+- Scientific / technical guide (math + algorithm): [DOKUMENTACJA_NAUKOWA.md](./DOKUMENTACJA_NAUKOWA.md)
+- Plain-language explanation (Polish): `wytlumaczenie.docx`
+- Original technical guide: [DOKUMENTACJA_DDOS_OFN.md](./DOKUMENTACJA_DDOS_OFN.md)
+- AI agents: this repo ships a local nodesify-graphify knowledge graph — see [AGENTS.md](./AGENTS.md).
 
 ## Core Idea
 
 1. Each router/node provides a short traffic window (default `4` samples, configurable via `BuilderConfig.window_size`).
-2. A directed OFN is built per router for each time window.
-3. Router OFNs are weighted and aggregated into a global OFN score.
-4. Positive direction increases suspicion; negative direction reduces it.
-5. Detector triggers alarm using threshold + hysteresis.
-6. GA tunes weights and detector parameters on labeled scenarios.
+2. Each router is normalized against a **robust idle floor** (a low quantile over the series), so a sustained attack that occupies most of the timeline cannot poison the baseline.
+3. A directed OFN is built per router for each window; **direction comes from the anomaly *level* above the floor** (a sustained-high router stays positive even when its slope is flat), not just the instantaneous trend.
+4. Router OFNs are weighted and aggregated into a single global OFN. Positive direction increases suspicion, negative reduces it.
+5. The global OFN is defuzzified into a **count-invariant score** (a weighted mean in robust-sigma units), so one threshold generalizes across 8 or 200 routers and across traffic scales.
+6. The detector triggers via threshold + hysteresis, plus a **breadth gate** (`min_positive_fraction`) that scales with the router count and separates a narrow flash crowd from a broad attack.
+7. GA tunes weights and detector parameters on labeled scenarios.
+
+### Robustness: works across datasets and router counts
+
+The detection model self-adapts so a single default config generalizes:
+
+- **`baseline_mode="global_floor"`** + `floor_quantile` — idle floor resistant to attacks that dominate the timeline.
+- **`direction_mode="level"`** + `level_epsilon` — fires on sustained-high attacks, and (set high enough) keeps pure noise out of the positive count so the breadth gate is meaningful.
+- **`min_positive_fraction`** — the breadth requirement is a fraction of the router count, so it auto-scales with network size.
+- **`threshold_mode`** — `"absolute"` (default; the score is already in robust-sigma units) or `"auto"` (calibrate alert/clear from the score's own distribution).
+
+On the synthetic suite with the default config, across routers ∈ {8, 30, 60, 120}: `normal` + `flash_crowd` + `flash_cascade` false-positive rate is **0.000**, attack recall **0.55–0.975**, stable across counts.
 
 ## Current MVP
 
-- Local `pyofn` package copied from the OFN prototype repository.
-- Robust baseline normalization with median and MAD.
-- OFN builder from short traffic windows per router (default `4` samples).
-- Weighted OFN fusion across routers with signed contribution.
-- Stateful detector with alert and clear hysteresis.
+- Local `pyofn` package with Kosiński Ordered Fuzzy Number arithmetic.
+- Robust idle-floor normalization (low-quantile center + IQR scale) plus legacy median/MAD.
+- OFN builder from short traffic windows per router (default `4` samples), level-based direction.
+- Count-invariant weighted OFN fusion with signed contribution; fractional breadth gate.
+- Stateful detector with alert/clear hysteresis and absolute or auto-calibrated thresholds.
 - CSV loader for real datasets in wide and long format, including multi-feature router data.
+- CIC-DDoS2019 raw-flow converter (`scripts/prepare_cicddos2019.py`).
 - Synthetic scenarios: `normal`, `ddos_ramp`, `ddos_pulse`, `flash_crowd`.
 - Extended synthetic validation scenarios: `ddos_low_and_slow`, `ddos_rotating`, `flash_cascade`.
-- Basic GA for tuning router weights and detector thresholds.
+- GA for tuning router weights and detector thresholds.
+- Desktop dashboard with side-by-side comparison mode (`--snap` / `--label`).
 
 ## Real CSV Input
 
@@ -195,3 +215,30 @@ Quick smoke test for the desktop flow:
 ```bash
 python scripts/dashboard.py --smoke-test
 ```
+
+### Side-by-side comparison
+
+The dashboard can tile itself to one half of the screen and wear a header badge,
+so two instances run comfortably next to each other (e.g. comparing scenarios,
+configs, or a legacy build against this one):
+
+```bash
+python scripts/dashboard.py --snap left  --label A
+python scripts/dashboard.py --snap right --label B
+```
+
+## Real CIC-DDoS2019 data
+
+Convert a raw CIC-DDoS2019 (CICFlowMeter) capture into the long-format scenario CSV:
+
+```bash
+python scripts/prepare_cicddos2019.py \
+  --input data/raw/UDPLag.csv --output data/processed/cicddos_udplag.csv \
+  --bin-seconds 5 --router-key dst_ip --num-routers 8 --metric flow_count --metric packet_count
+```
+
+Notes from real-data evaluation: per-second binning labels many idle steps inside
+the attack window as "attack" (the flood is bursty), which caps recall — coarser
+bins (`--bin-seconds 5..10`) recover it. On congested captures, volume-only
+features limit benign/attack separation; richer flow features (port/IP entropy,
+packet-size distribution, SYN/flow statistics) are the path to higher precision.
