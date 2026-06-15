@@ -46,27 +46,35 @@ def test_detector_requires_all_alert_conditions_to_be_true():
         ),
     )
 
-    assert detector._update_alarm(score=5.0, positive_routers=3) is False
-    assert detector._update_alarm(score=6.0, positive_routers=1) is False
-    assert detector._update_alarm(score=6.0, positive_routers=2) is True
+    # below the absolute min_total_score floor -> no alarm even if above alert_threshold
+    assert detector._update_alarm(5.0, 3, min_positive=2, alert_threshold=4.0, clear_threshold=2.0) is False
+    detector.reset()
+    # too few positive routers -> no alarm
+    assert detector._update_alarm(6.0, 1, min_positive=2, alert_threshold=4.0, clear_threshold=2.0) is False
+    detector.reset()
+    # all conditions satisfied -> alarm
+    assert detector._update_alarm(6.0, 2, min_positive=2, alert_threshold=4.0, clear_threshold=2.0) is True
 
 
 def test_detector_accepts_multifeature_router_tensor():
-    traffic = np.array(
-        [
-            [[100.0, 500.0], [105.0, 510.0]],
-            [[101.0, 505.0], [104.0, 515.0]],
-            [[102.0, 510.0], [103.0, 520.0]],
-            [[120.0, 650.0], [122.0, 660.0]],
-            [[135.0, 760.0], [136.0, 780.0]],
-            [[150.0, 860.0], [152.0, 880.0]],
-        ],
-        dtype=np.float64,
-    )
-    labels = np.array([0, 0, 0, 1, 1, 1], dtype=np.int8)
+    # 10 calm steps establish a clean idle floor, then a strong sustained burst
+    # on both routers across both features. Enough benign history that the global
+    # floor stays uncontaminated and the burst reads as a clear anomaly.
+    rng = np.random.default_rng(0)
+    calm = rng.normal([100.0, 500.0], [1.5, 6.0], size=(10, 2, 2))
+    burst = np.tile(np.array([[300.0, 1500.0], [305.0, 1520.0]]), (3, 1, 1))
+    traffic = np.concatenate([calm, burst], axis=0)
+    labels = np.array([0] * 10 + [1, 1, 1], dtype=np.int8)
     detector = DDoSDetector(
-        BuilderConfig(history_size=3, window_size=4, trend_epsilon=1.0),
-        DetectorConfig(alert_threshold=1.0, clear_threshold=0.5, alert_windows=1, clear_windows=1, min_positive_routers=1),
+        BuilderConfig(history_size=8, window_size=4),
+        DetectorConfig(
+            alert_threshold=1.0,
+            clear_threshold=0.5,
+            alert_windows=1,
+            clear_windows=1,
+            min_positive_fraction=0.0,
+            min_positive_routers=1,
+        ),
     )
 
     trace = detector.run(
@@ -77,5 +85,6 @@ def test_detector_accepts_multifeature_router_tensor():
         feature_names=["packet_count", "byte_count"],
     )
 
+    assert trace.predictions.shape == (13,)
     assert trace.predictions.max() == 1
     assert trace.scores.max() > 0.0

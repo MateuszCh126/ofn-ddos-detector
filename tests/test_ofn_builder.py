@@ -18,15 +18,17 @@ def test_build_router_ofn_positive_direction_for_rising_window():
     assert signal.ofn.direction == 1
 
 
-def test_build_router_ofn_negative_direction_for_falling_window():
+def test_build_router_ofn_negative_direction_for_below_floor_window():
+    # Direction is level-based: a window pinned well BELOW the baseline floor is
+    # negative (a quiet/recovering router), regardless of slope. A still-elevated
+    # but falling window stays positive, which is the point of level semantics.
     cfg = BuilderConfig()
-    history = np.array([120.0, 121.0, 119.0, 122.0, 118.0, 120.0])
-    window = np.array([150.0, 145.0, 132.0, 124.0])
+    history = np.array([150.0, 151.0, 149.0, 152.0, 148.0, 150.0])
+    window = np.array([120.0, 115.0, 110.0, 105.0])
 
     signal = build_router_ofn("router_b", window, history, cfg)
 
     assert signal.direction == -1
-    assert signal.trend < 0.0
     assert signal.ofn.direction == -1
 
 

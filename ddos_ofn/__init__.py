@@ -1,6 +1,6 @@
 """OFN-based DDoS detection package."""
 
-__version__ = "0.3.0"
+__version__ = "0.9.0"
 
 from ddos_ofn.comparators import (
     EWMAConfig,

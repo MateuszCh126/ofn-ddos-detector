@@ -30,6 +30,29 @@ def infer_direction(normalized_window: np.ndarray, trend_epsilon: float) -> tupl
     return 0, trend
 
 
+def infer_level_direction(
+    anomaly_window: np.ndarray,
+    signed_window: np.ndarray,
+    level_epsilon: float,
+) -> tuple[int, float]:
+    """Infer direction from the anomaly *level* (elevation above the floor).
+
+    A router that is sustained high above its baseline floor is positive even
+    when its slope is flat (the failure mode of trend-only detection on real,
+    long-lived attacks). Mirror case: a router pinned significantly below its
+    floor reads as negative. ``level`` (mean positive elevation, in robust
+    sigmas) is returned for diagnostics.
+    """
+
+    level = float(np.mean(np.asarray(anomaly_window, dtype=np.float64)))
+    signed_level = float(np.mean(np.asarray(signed_window, dtype=np.float64)))
+    if level > level_epsilon:
+        return 1, level
+    if signed_level < -level_epsilon:
+        return -1, level
+    return 0, level
+
+
 def _ensure_trapezoid_params(
     values: np.ndarray,
     min_spread: float,
@@ -101,8 +124,14 @@ def _prepare_feature_windows(
     *,
     feature_names: Sequence[str] | None = None,
     feature_weights: Mapping[str, float] | Sequence[float] | None = None,
+    baseline_override: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, list[str]]:
-    """Normalize 1D/2D router history and collapse it into one composite window."""
+    """Normalize 1D/2D router history and collapse it into one composite window.
+
+    When ``baseline_override`` (per-feature centers and scales) is supplied the
+    rolling median/MAD estimate is skipped in favour of those values — this is
+    how the detector injects a contamination-resistant global idle floor.
+    """
 
     window_values = np.asarray(window, dtype=np.float64)
     history_values = np.asarray(history, dtype=np.float64)
@@ -126,8 +155,19 @@ def _prepare_feature_windows(
     scales = np.zeros(window_values.shape[1], dtype=np.float64)
     normalized_matrix = np.zeros_like(window_values, dtype=np.float64)
 
+    override_centers, override_scales = (None, None)
+    if baseline_override is not None:
+        override_centers = np.asarray(baseline_override[0], dtype=np.float64).reshape(-1)
+        override_scales = np.asarray(baseline_override[1], dtype=np.float64).reshape(-1)
+        if override_centers.size != window_values.shape[1] or override_scales.size != window_values.shape[1]:
+            raise ValueError("baseline_override must provide one center/scale per feature")
+
     for idx in range(window_values.shape[1]):
-        center, scale = robust_center_scale(history_values[:, idx], min_scale=config.min_baseline_scale)
+        if override_centers is not None:
+            center = float(override_centers[idx])
+            scale = max(float(override_scales[idx]), config.min_baseline_scale, 1e-9)
+        else:
+            center, scale = robust_center_scale(history_values[:, idx], min_scale=config.min_baseline_scale)
         centers[idx] = center
         scales[idx] = scale
         normalized_matrix[:, idx] = normalize_window(window_values[:, idx], center, scale, clip=config.anomaly_clip)
@@ -149,6 +189,7 @@ def build_router_ofn(
     *,
     feature_names: Sequence[str] | None = None,
     feature_weights: Mapping[str, float] | Sequence[float] | None = None,
+    baseline_override: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> RouterOFN:
     """Build a directed trapezoidal OFN from 4 consecutive measurements."""
 
@@ -166,8 +207,15 @@ def build_router_ofn(
         config,
         feature_names=feature_names,
         feature_weights=feature_weights,
+        baseline_override=baseline_override,
     )
-    direction, trend = infer_direction(composite_normalized, config.trend_epsilon)
+    if config.direction_mode == "level":
+        direction, _level = infer_level_direction(composite_window, composite_normalized, config.level_epsilon)
+        _, trend = infer_direction(composite_normalized, config.trend_epsilon)
+    elif config.direction_mode == "trend":
+        direction, trend = infer_direction(composite_normalized, config.trend_epsilon)
+    else:
+        raise ValueError(f"unsupported direction_mode '{config.direction_mode}'")
     suspicion = float(np.mean(composite_window))
 
     if direction == 0 and suspicion <= config.min_spread:
